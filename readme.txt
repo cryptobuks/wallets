@@ -3,9 +3,9 @@ Contributors: dashedslug
 Donate link: https://flattr.com/profile/dashed-slug
 Tags: wallet, bitcoin, cryptocurrency, altcoin, coin, money, e-money, e-cash, deposit, withdraw, account, API
 Requires at least: 4.0
-Tested up to: 5.1
+Tested up to: 5.2.2
 Requires PHP: 5.6
-Stable tag: 4.0.6
+Stable tag: 4.4.1
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -352,6 +352,69 @@ For all other communication, please contact [info@dashed-slug.net](mailto:info@d
 
 
 == Changelog ==
+
+= 4.4.1 =
+- Fix: Issue introduced in `4.4.0` that prevented initiating new transactions in most cases, is now fixed.
+
+= 4.4.0 =
+- Add: It is now possible to display amount equivalencies in fiat currencies in confirmation/notification emails.
+- Improve: Variable substitutions are now more uniform between confirmations and notifications.
+- Add: The recommended `.conf` settings for Bitcoin core take into account the latest changes in 18.0.0 where `rpcbind` and `rpcauth` are mandatory.
+- Add: New cron job setting "Allow running on AJAX requests". Is on by default, can be turned off (e.g. if it slows down WooCommerce too much).
+- Fix: Use `esc_textarea()` where appropriate.
+
+= 4.3.5 =
+- Fix: The user-confirmation link can no longer resurrect transactions that have been cancelled by an admin. Only unconfirmed transactions can now be confirmed via the confirmation link.
+- Add: New option to send a Bcc copy of *all* emails to the admin(s). All users with the `manage_wallets` capability are notified if the option is on.
+
+= 4.3.4 =
+- Fix: On cron job runs, transactions on Bitcoin-like RPC API wallets are now scanned more efficiently.
+- Add: The cron job tasks that scan for transactions on Bitcoin-like RPC API wallets now report a lot more detail when verbose debugging is turned on.
+
+= 4.3.3 =
+- Fix: The frontend now checks to see if the selected coin exists before rendering its icon in more view templates. Avoids some JavaScript errors.
+- Fix: In frontend UIs, when transaction amount minus fees is negative, "insufficient balance was shown". Added new validation error message in this case.
+- Fix: In frontend UIs, validation error for less than minimum withdrawal amount is now given higher priority.
+
+= 4.3.2 =
+- Add: The shortcode `[wallets_balance template="list"]` now includes a "Show zero balances" checkbox.
+- Fix: The frontend now checks to see if the selected coin exists before rendering its icon. This avoids a JavaScript error.
+- Fix: Undefined variable PHP error in multi-site cron prevented logging.
+- Fix: All options in network-active installations under *Wallets* &rarr; *Confirms* are now being saved correctly.
+
+= 4.3.1 =
+- Fix: The jquery-qrcode.js library is only loaded in screens where the `[wallets_deposit]` shortcode is shown, and only if QR Codes are enabled.
+- Fix: If a different jquery-qrcode.js library is already loaded, the plugin will use that and not load its own copy. Helps with compatibility with `two-factor-authentication` plugin.
+- Fix: Add some guard clauses so that warnings are not printed out to the logs.
+- Fix: When an admin received notification about a pending withdrawal with no tags, the tags are no longer shown as `###TAGS###` but the string `n/a/` is shown in the email.
+
+= 4.3.0 =
+- Add: Admin can now set the site-wide default coin for frontend UI screens.
+- Add: Admin can now set a page-specific or post-specific default coin for frontend UI screens.
+- Fix: Fixed a bug in the `[wallets_deposit template="static" symbol="XYZ"]` form of the deposit shortcodes, where the qr code shown was that of the current coin, not the coin specified by the "symbol" attribute.
+
+= 4.2.2 =
+- Add: New button in *Exchange Rates* admin page clear any stale exchange rates and forces the plugin to download new data.
+- Add: The result of `wp_using_ext_object_cache()` is now reported in the debug information shown in the admin dashboard.
+- Add: Calling `do_cron` via the JSON API now also forces expired transients to be deleted from the DB (the `delete_expired_transients` WordPress action is fired).
+- Change: The plugin now loads the frontend libraries `sprintf.js` and `moment.js` always. This helps the Exchange extension display public market data even if a user is not logged in.
+
+= 4.2.1 =
+- Improve: When calling version 3 of the JSON API using an API key, the `__wallets_user_id` GET argument no longer needs to be specified. It is inferred from the value of the secret key.
+
+= 4.2.0 =
+- Add: New capability `access_wallets_api` controls whether a user can access the JSON API using key-based authentication.
+- Add: Users with `access_wallets_api` are shown their API key in their user profile admin screen.
+- Add: The `get_nonces` JSON API endpoint returns the API key when accessed via browser (with cookie-based authentication).
+- Add: The `do_reset_apikey` JSON API endpoint can be used to reset the API key to a new random value.
+- Add: The JSON API can now be accessed with an API key. Details in the accompanying documentation.
+- Add: The `[wallets_api_key]` shortcode shows the API key to the user and allows the key to be reset.
+- Change: Withdrawals with the RPC-based coin adapters no longer fail in some edge cases where wallets are picky about the amount format ("Invalid amount error").
+
+= 4.1.0 =
+- Add: Control the frontend UI styling using the WordPress Customizer.
+- Fix: The JavaScript library `jquery-qrcode` is only loaded if the user is logged in and has the capability `has_wallets`.
+- Change: Now using the latest version `1.1.1` of the JavaScript library `sprintf.js`.
 
 = 4.0.6 =
 - Add: When unable to render a shortcode due to missing permissions or other problems, the error message displayed is now configurable via a WordPress filter.
@@ -1187,7 +1250,7 @@ Fix: Race condition hazard that could compromise the security of this plugin now
 
 == Upgrade Notice ==
 
-Version 4.0.6 fixes a bug with exchange rates coming from fixer.io.
+Version `4.4.1` fixes an issue introduced in `4.4.0` which prevented entering transactions, because my automated testing sucks :-(
 
 == Donating ==
 

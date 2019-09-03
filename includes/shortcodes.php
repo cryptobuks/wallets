@@ -2,7 +2,7 @@
 
 /**
  * Displays the various UI views that correspond to the wallets_shortcodes. The frontend UI elements
- * tak to the JSON API to perform user requests.
+ * talk to the JSON API to perform user requests.
  */
 
 // don't load directly
@@ -20,6 +20,7 @@ if ( ! class_exists( 'Dashed_Slug_Wallets_Shortcodes' ) ) {
 			'wallets_move'           => Dashed_Slug_Wallets_Capabilities::SEND_FUNDS_TO_USER,
 			'wallets_total_balances' => Dashed_Slug_Wallets_Capabilities::HAS_WALLETS,
 			'wallets_rates'          => Dashed_Slug_Wallets_Capabilities::HAS_WALLETS,
+			'wallets_api_key'        => Dashed_Slug_Wallets_Capabilities::ACCESS_WALLETS_API,
 		);
 
 		public static $tx_columns = array(
@@ -50,8 +51,8 @@ if ( ! class_exists( 'Dashed_Slug_Wallets_Shortcodes' ) ) {
 		public function action_wp_enqueue_scripts() {
 			if ( current_user_can( Dashed_Slug_Wallets_Capabilities::HAS_WALLETS ) ) {
 
-				if ( file_exists( DSWALLETS_PATH . '/assets/scripts/bs58check-4.0.6.min.js' ) ) {
-					$script = 'bs58check-4.0.6.min.js';
+				if ( file_exists( DSWALLETS_PATH . '/assets/scripts/bs58check-4.4.1.min.js' ) ) {
+					$script = 'bs58check-4.4.1.min.js';
 				} else {
 					$script = 'bs58check.js';
 				}
@@ -121,6 +122,22 @@ if ( ! class_exists( 'Dashed_Slug_Wallets_Shortcodes' ) ) {
 				$atts,
 				"wallets_$view"
 			);
+
+			if (
+				'deposit' == $view
+				&& Dashed_Slug_Wallets::get_option( 'wallets_qrcode_enabled' )
+				&& user_can( $atts['user_id'], 'has_wallets' )
+				&& ! wp_script_is( 'jquery-qrcode' )
+			) {
+				wp_enqueue_script(
+					'jquery-qrcode',
+					plugins_url( 'jquery.qrcode.min.js', 'wallets/assets/scripts/jquery.qrcode.min.js' ),
+					array( 'jquery' ),
+					'1.0.0',
+					true
+				);
+			}
+
 
 			ob_start();
 			try {

@@ -77,8 +77,8 @@ If you want the withdrawal to proceed, please click on this link to confirm:
 ###LINK###
 
 Coin symbol: ###SYMBOL###
-Amount: ###AMOUNT###
-Fees to be paid: ###FEE###
+Amount: ###AMOUNT### (in ###FIAT_SYMBOL###: ###FIAT_AMOUNT###)
+Fees to be paid: ###FEE### (in ###FIAT_SYMBOL###: ###FIAT_FEE### )
 Transaction requested at: ###CREATED_TIME_LOCAL###
 Comment: ###COMMENT###
 Extra transaction info (optional): ###EXTRA###
@@ -115,7 +115,7 @@ You will receive the transaction when the transaction is confirmed.
 If you do not receive the transaction soon, you may wish to contact the user or an admin about it.
 
 Coin symbol: ###SYMBOL###
-Amount to receive: ###AMOUNT###
+Amount to receive: ###AMOUNT_WITHOUT_FEE### (in ###FIAT_SYMBOL###: ###FIAT_AMOUNT_WITHOUT_FEE###)
 Transaction requested at: ###CREATED_TIME_LOCAL###
 Comment: ###COMMENT###
 
@@ -156,12 +156,13 @@ If you want the transaction to proceed, please click on this link to confirm:
 ###LINK###
 
 Coin symbol: ###SYMBOL###
-Amount: ###AMOUNT###
-Fees to be paid: ###FEE###
+Amount: ###AMOUNT### (in ###FIAT_SYMBOL###: ###FIAT_AMOUNT###)
+Fees to be paid: ###FEE### (in ###FIAT_SYMBOL###: ###FIAT_FEE###)
 Transaction ID: ###TXID###
 Transaction created at: ###CREATED_TIME_LOCAL###
 Comment: ###COMMENT###
 Tags: ###TAGS###
+
 
 If you did not request this transaction, please contact the administrator of this site immediately.
 
@@ -195,8 +196,8 @@ Any user with the "manage_wallets" capability can perform this action.
 
 Coin symbol: ###SYMBOL###
 Type: ###CATEGORY###
-Amount: ###AMOUNT###
-Fees to be paid: ###FEE###
+Amount: ###AMOUNT### (in ###FIAT_SYMBOL###: ###FIAT_AMOUNT###)
+Fees to be paid: ###FEE### (in ###FIAT_SYMBOL###: ###FIAT_FEE###)
 Transaction created at: ###CREATED_TIME_LOCAL###
 Comment: ###COMMENT###
 Tags: ###TAGS###
@@ -264,6 +265,7 @@ EMAIL
 							$table_name_txs
 						WHERE
 							( blog_id = %d || %d ) AND
+							status = 'unconfirmed' AND
 							nonce = %s
 					",
 						get_current_blog_id(),
@@ -274,7 +276,7 @@ EMAIL
 
 				if ( ! $tx_data ) {
 					wp_die(
-						__( 'The transaction to be confirmed was not found or it has already been confirmed.', 'wallets' ),
+						__( 'The transaction to be confirmed was not found, has already been confirmed, or has been cancelled by an admin.', 'wallets' ),
 						__( 'Bitcoin and Altcoin Wallets transaction confirmation', 'wallets' ),
 						array( 'response' => $redirect_page_id ? 302 : 410 )
 					);
@@ -309,6 +311,7 @@ EMAIL
 									$table_name_txs
 								WHERE
 									( blog_id = %d || %d ) AND
+									status = 'unconfirmed' AND
 									txid LIKE %s
 							",
 								get_current_blog_id(),
@@ -418,7 +421,27 @@ EMAIL
 				// localize time based on wp timezone
 				$row['created_time_local'] = get_date_from_gmt( $row['created_time'] );
 
+				// pull fiat variables
+				$fiat_sprintf = '%01.2F';
+				$exchange_rate = false;
+				$fiat_symbol = Dashed_Slug_Wallets_Rates::get_fiat_selection( $user->ID );
+				if ( $fiat_symbol ) {
+					$exchange_rate = Dashed_Slug_Wallets_Rates::get_exchange_rate( $fiat_symbol, $row['symbol'] );
+					$row['fiat_symbol'] = $fiat_symbol;
+					try {
+						$adapters = apply_filters( 'wallets_api_adapters', array() );
+						if ( isset( $adapters[ $fiat_symbol ] ) ) {
+							$adapter  = $adapters[ $fiat_symbol ];
+							$fiat_sprintf  = $adapter->get_sprintf();
+						}
+					} catch ( Exception $e ) { }
+				}
+
 				// use pattern for displaying amounts
+				if ( ! isset( $row['fee'] ) ) {
+					$row['fee'] = 0;
+				}
+
 				if ( isset( $row['symbol'] ) ) {
 					try {
 						$adapters = apply_filters( 'wallets_api_adapters', array() );
@@ -429,10 +452,26 @@ EMAIL
 					}
 
 					if ( isset( $row['amount'] ) ) {
-						$row['amount'] = sprintf( $sprintf, $row['amount'] );
+						$positive_amount = abs( $row['amount'] );
+						$fee = $row['fee'];
+						$positive_amount_min_fee = abs( $row['amount'] ) - $row['fee'];
+
+						$row['amount']             = sprintf( $sprintf, $positive_amount );
+						$row['fee']                = sprintf( $sprintf, abs( $fee ) );
+						$row['amount_without_fee'] = sprintf( $sprintf, $positive_amount_min_fee );
+
+						if ( $exchange_rate ) {
+							$row['fiat_amount']             = sprintf( $fiat_sprintf, $exchange_rate * $positive_amount );
+							$row['fiat_fee']                = sprintf( $fiat_sprintf, $exchange_rate * $fee );
+							$row['fiat_amount_without_fee'] = sprintf( $fiat_sprintf, $exchange_rate * $positive_amount_min_fee );
+						}
 					}
-					if ( isset( $row['fee'] ) ) {
-						$row['fee'] = sprintf( $sprintf, $row['fee'] );
+				}
+
+				// missing values
+				foreach ( array( 'symbol', 'fiat_symbol', 'amount', 'fiat_amount', 'fee','fiat_fee', 'amount_without_fee', 'fiat_amount_without_fee' ) as $var ) {
+					if ( ! isset( $row[ $var ] ) ) {
+						$row[ $var ] = 'n/a';
 					}
 				}
 
@@ -513,10 +552,35 @@ EMAIL
 				unset( $row['blog_id'] );
 				unset( $row['updated_time'] );
 
+				// create some vars
+				if ( ! isset( $row['tags'] ) ) {
+					$row['tags'] = 'n/a';
+				}
+
 				// localize time based on wp timezone
 				$row['created_time_local'] = get_date_from_gmt( $row['created_time'] );
 
+				// pull fiat variables
+				$fiat_sprintf = '%01.2F';
+				$exchange_rate = false;
+				$fiat_symbol = Dashed_Slug_Wallets::get_option( 'wallets_default_base_symbol', 'USD' );
+				if ( $fiat_symbol ) {
+					$exchange_rate = Dashed_Slug_Wallets_Rates::get_exchange_rate( $fiat_symbol, $row['symbol'] );
+					$row['fiat_symbol'] = $fiat_symbol;
+					try {
+						$adapters = apply_filters( 'wallets_api_adapters', array() );
+						if ( isset( $adapters[ $fiat_symbol ] ) ) {
+							$adapter  = $adapters[ $fiat_symbol ];
+							$fiat_sprintf  = $adapter->get_sprintf();
+						}
+					} catch ( Exception $e ) { }
+				}
+
 				// use pattern for displaying amounts
+				if ( ! isset( $row['fee'] ) ) {
+					$row['fee'] = 0;
+				}
+
 				if ( isset( $row['symbol'] ) ) {
 					try {
 						$adapters = apply_filters( 'wallets_api_adapters', array() );
@@ -527,10 +591,26 @@ EMAIL
 					}
 
 					if ( isset( $row['amount'] ) ) {
-						$row['amount'] = sprintf( $sprintf, $row['amount'] );
+						$positive_amount = abs( $row['amount'] );
+						$fee = $row['fee'];
+						$positive_amount_min_fee = abs( $row['amount'] ) - $row['fee'];
+
+						$row['amount']             = sprintf( $sprintf, $positive_amount );
+						$row['fee']                = sprintf( $sprintf, abs( $fee ) );
+						$row['amount_without_fee'] = sprintf( $sprintf, $positive_amount_min_fee );
+
+						if ( $exchange_rate ) {
+							$row['fiat_amount']             = sprintf( $fiat_sprintf, $exchange_rate * $positive_amount );
+							$row['fiat_fee']                = sprintf( $fiat_sprintf, $exchange_rate * $fee );
+							$row['fiat_amount_without_fee'] = sprintf( $fiat_sprintf, $exchange_rate * $positive_amount_min_fee );
+						}
 					}
-					if ( isset( $row['fee'] ) ) {
-						$row['fee'] = sprintf( $sprintf, $row['fee'] );
+				}
+
+				// missing values
+				foreach ( array( 'symbol', 'fiat_symbol', 'amount', 'fiat_amount', 'fee','fiat_fee', 'amount_without_fee', 'fiat_amount_without_fee' ) as $var ) {
+					if ( ! isset( $row[ $var ] ) ) {
+						$row[ $var ] = 'n/a';
 					}
 				}
 
@@ -553,7 +633,6 @@ EMAIL
 
 				$admin_emails = Dashed_Slug_Wallets::get_admin_emails();
 
-
 				$result = wp_mail(
 					$admin_emails,
 					$subject,
@@ -570,7 +649,6 @@ EMAIL
 					);
 				}
 			}
-
 		}
 
 		public function send_inform_receive_move_email( $row ) {
@@ -611,7 +689,27 @@ EMAIL
 				// localize time based on wp timezone
 				$row['created_time_local'] = get_date_from_gmt( $row['created_time'] );
 
+				// pull fiat variables
+				$fiat_sprintf = '%01.2F';
+				$exchange_rate = false;
+				$fiat_symbol = Dashed_Slug_Wallets_Rates::get_fiat_selection( $other_user->ID );
+				if ( $fiat_symbol ) {
+					$exchange_rate = Dashed_Slug_Wallets_Rates::get_exchange_rate( $fiat_symbol, $row['symbol'] );
+					$row['fiat_symbol'] = $fiat_symbol;
+					try {
+						$adapters = apply_filters( 'wallets_api_adapters', array() );
+						if ( isset( $adapters[ $fiat_symbol ] ) ) {
+							$adapter  = $adapters[ $fiat_symbol ];
+							$fiat_sprintf  = $adapter->get_sprintf();
+						}
+					} catch ( Exception $e ) { }
+				}
+
 				// use pattern for displaying amounts
+				if ( ! isset( $row['fee'] ) ) {
+					$row['fee'] = 0;
+				}
+
 				if ( isset( $row['symbol'] ) ) {
 					try {
 						$adapters = apply_filters( 'wallets_api_adapters', array() );
@@ -621,13 +719,27 @@ EMAIL
 						$sprintf = '%01.8F';
 					}
 
-					if ( isset( $row['amount'] ) && isset( $row['fee'] ) ) {
-						// display positive amount to recipient
-						$row['amount'] = sprintf( $sprintf, abs( $row['amount'] ) - $row['fee'] );
+					if ( isset( $row['amount'] ) ) {
+						$positive_amount = abs( $row['amount'] );
+						$fee = $row['fee'];
+						$positive_amount_min_fee = abs( $row['amount'] ) - $row['fee'];
 
-					} elseif ( isset( $row['amount'] ) ) {
-						// display positive amount to recipient
-						$row['amount'] = sprintf( $sprintf, abs( $row['amount'] ) );
+						$row['amount']             = sprintf( $sprintf, $positive_amount );
+						$row['fee']                = sprintf( $sprintf, abs( $fee ) );
+						$row['amount_without_fee'] = sprintf( $sprintf, $positive_amount_min_fee );
+
+						if ( $exchange_rate ) {
+							$row['fiat_amount']             = sprintf( $fiat_sprintf, $exchange_rate * $positive_amount );
+							$row['fiat_fee']                = sprintf( $fiat_sprintf, $exchange_rate * $fee );
+							$row['fiat_amount_without_fee'] = sprintf( $fiat_sprintf, $exchange_rate * $positive_amount_min_fee );
+						}
+					}
+				}
+
+				// missing values
+				foreach ( array( 'symbol', 'fiat_symbol', 'amount', 'fiat_amount', 'fee','fiat_fee', 'amount_without_fee', 'fiat_amount_without_fee' ) as $var ) {
+					if ( ! isset( $row[ $var ] ) ) {
+						$row[ $var ] = 'n/a';
 					}
 				}
 
@@ -727,8 +839,7 @@ EMAIL
 				?>
 				</p>
 
-				<form method="post" action="
-				<?php
+				<form method="post" action="<?php
 
 					if ( is_plugin_active_for_network( 'wallets/wallets.php' ) ) {
 						echo esc_url(
@@ -741,13 +852,12 @@ EMAIL
 					} else {
 						echo 'options.php';
 					}
+				?>">
+				<?php
+					settings_fields( 'wallets-menu-confirmations' );
+					do_settings_sections( 'wallets-menu-confirmations' );
+					submit_button();
 				?>
-				">
-					<?php
-						settings_fields( 'wallets-menu-confirmations' );
-						do_settings_sections( 'wallets-menu-confirmations' );
-						submit_button();
-					?>
 				</form>
 
 				<div class="card">
@@ -761,12 +871,22 @@ EMAIL
 						<dd><?php esc_html_e( 'Username of other account (for internal transactions between users)', 'wallets' ); ?></dd>
 						<dt><code>###TXID###</code></dt>
 						<dd><?php esc_html_e( 'Transaction ID. ( This is normally the same as the txid on the blockchain. Internal transactions are also assigned a unique ID. )', 'wallets' ); ?></dd>
-						<dt><code>###AMOUNT###</code></dt>
-						<dd><?php esc_html_e( 'The amount transacted.', 'wallets' ); ?></dd>
-						<dt><code>###FEE###</code></dt>
-						<dd><?php esc_html_e( 'For withdrawals and transfers, the fees paid to the site.', 'wallets' ); ?></dd>
 						<dt><code>###SYMBOL###</code></dt>
 						<dd><?php esc_html_e( 'The coin symbol for this transaction (e.g. "BTC" for Bitcoin)', 'wallets' ); ?></dd>
+						<dt><code>###AMOUNT###</code></dt>
+						<dd><?php esc_html_e( 'The amount transacted.', 'wallets' ); ?></dd>
+						<dt><code>###AMOUNT_WITHOUT_FEE###</code></dt>
+						<dd><?php esc_html_e( 'The amount transacted with fees subtracted.', 'wallets' ); ?></dd>
+						<dt><code>###FEE###</code></dt>
+						<dd><?php esc_html_e( 'For withdrawals and transfers, the fees paid to the site.', 'wallets' ); ?></dd>
+						<dt><code>###FIAT_SYMBOL###</code></dt>
+						<dd><?php esc_html_e( 'The fiat currency that the user has selected to see equivalent amounts in (falling back to the site-wide default fiat currency)', 'wallets' ); ?></dd>
+						<dt><code>###FIAT_AMOUNT###</code></dt>
+						<dd><?php esc_html_e( 'Same as ###AMOUNT###, but expressed in the fiat currency that the user has selected to see equivalent amounts in (or in the site-wide default fiat currency)', 'wallets' ); ?></dd>
+						<dt><code>###FIAT_AMOUNT_WITHOUT_FEE###</code></dt>
+						<dd><?php esc_html_e( 'Same as ###AMOUNT_WITHOUT_FEE###, but expressed in the fiat currency that the user has selected to see equivalent amounts in (or in the site-wide default fiat currency)', 'wallets' ); ?></dd>
+						<dt><code>###FIAT_FEE###</code></dt>
+						<dd><?php esc_html_e( 'Same as ###FEE###, but expressed in the fiat currency that the user has selected to see equivalent amounts in (or in the site-wide default fiat currency)', 'wallets' ); ?></dd>
 						<dt><code>###CREATED_TIME_LOCAL###</code></dt>
 						<dd><?php esc_html_e( 'The date and time of the transaction in the local timezone. Format: YYYY-MM-DD hh:mm:ss', 'wallets' ); ?></dd>
 						<dt><code>###CREATED_TIME###</code></dt>
@@ -818,7 +938,7 @@ EMAIL
 			<textarea
 				style="width:100%;" rows="8"
 				name="<?php echo esc_attr( $arg['label_for'] ); ?>"
-				id="<?php echo esc_attr( $arg['label_for'] ); ?>"><?php echo esc_html( Dashed_Slug_Wallets::get_option( $arg['label_for'] ) ); ?></textarea>
+				id="<?php echo esc_attr( $arg['label_for'] ); ?>"><?php echo esc_textarea( Dashed_Slug_Wallets::get_option( $arg['label_for'] ) ); ?></textarea>
 
 			<p id="<?php echo esc_attr( $arg['label_for'] ); ?>-description" class="description">
 				<?php echo esc_html( $arg['description'] ); ?>
@@ -1298,7 +1418,8 @@ EMAIL
 				'wallets_confirm_inform_admins_enabled',
 				'wallets_confirm_receive_move_user_enabled',
 			) as $checkbox_option_slug ) {
-					Dashed_Slug_Wallets::update_option( $checkbox_option_slug, filter_input( INPUT_POST, $checkbox_option_slug, FILTER_SANITIZE_STRING ) ? 'on' : '' );
+				$val = filter_input( INPUT_POST, $checkbox_option_slug, FILTER_SANITIZE_STRING ) ? 'on' : '';
+				Dashed_Slug_Wallets::update_option( $checkbox_option_slug, $val );
 			}
 
 			// strings
@@ -1312,16 +1433,19 @@ EMAIL
 				'wallets_confirm_receive_move_email_subject',
 				'wallets_confirm_receive_move_email_message',
 			) as $text_option_slug ) {
-				Dashed_Slug_Wallets::update_option( $text_option_slug, filter_input( INPUT_POST, $text_option_slug, FILTER_SANITIZE_STRING ) );
+				$val = filter_input( INPUT_POST, $text_option_slug, FILTER_SANITIZE_STRING );
+				Dashed_Slug_Wallets::update_option( $text_option_slug, $val );
 			}
 
 			// integers
 			foreach ( array(
+				'wallets_confirm_redirect_page',
 				'wallets_confirm_redirect_seconds',
 				'wallets_confirm_move_auto_days',
 				'wallets_confirm_withdraw_auto_days',
 			) as $integer_option_slug ) {
-				Dashed_Slug_Wallets::update_option( $text_option_slug, filter_input( INPUT_POST, $text_option_slug, FILTER_SANITIZE_NUMBER_INT ) );
+				$val = filter_input( INPUT_POST, $integer_option_slug, FILTER_SANITIZE_NUMBER_INT );
+				Dashed_Slug_Wallets::update_option( $integer_option_slug, $val );
 			}
 
 			wp_redirect( add_query_arg( 'page', 'wallets-menu-confirmations', network_admin_url( 'admin.php' ) ) );
@@ -1347,6 +1471,10 @@ EMAIL
 		}
 
 		public function cron() {
+			if ( wp_doing_ajax() && ! Dashed_Slug_Wallets::get_option( 'wallets_cron_ajax' ) ) {
+				return;
+			}
+
 			add_action( 'shutdown', array( &$this, 'cron_tasks_on_all_blogs' ), 20 );
 		}
 

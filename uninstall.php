@@ -37,6 +37,7 @@ if ( defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	wallets_delete_option( 'wallets_retries_withdraw' );
 	wallets_delete_option( 'wallets_retries_move' );
 	wallets_delete_option( 'wallets_cron_batch_size' );
+	wallets_delete_option( 'wallets_cron_ajax' );
 	wallets_delete_option( 'wallets_cron_verbose' );
 	wallets_delete_option( 'wallets_last_cron_run' );
 	wallets_delete_option( 'wallets_secrets_retain_minutes' );
@@ -47,6 +48,7 @@ if ( defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	wallets_delete_option( 'wallets_email_enabled' );
 	wallets_delete_option( 'wallets_email_from' );
 	wallets_delete_option( 'wallets_email_from_name' );
+	wallets_delete_option( 'wallets_email_forwarding_enabled' );
 	wallets_delete_option( 'wallets_email_error_forwarding_enabled' );
 	wallets_delete_option( 'wallets_buddypress_enabled' );
 	wallets_delete_option( 'wallets_history_enabled' );
@@ -131,6 +133,7 @@ if ( defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	wallets_delete_option( "{$option_slug}-other-minconf" );
 
 	// remove frontend settings
+	wallets_delete_option( 'wallets_default_coin' );
 	wallets_delete_option( 'wallets_qrcode_enabled' );
 	wallets_delete_option( 'wallets_sweetalert_enabled' );
 	wallets_delete_option( 'wallets_zlib_disabled' );
@@ -139,6 +142,7 @@ if ( defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	wallets_delete_option( 'wallets_visibility_check_enabled' );
 	wallets_delete_option( 'wallets_poll_interval_transactions' );
 	wallets_delete_option( 'wallets_poll_interval_coin_info' );
+	delete_post_meta_by_key( '_wallets_defaut_coin' );
 
 	// remove db schema revision
 	wallets_delete_option( 'wallets_db_revision' );

@@ -89,6 +89,9 @@
 			self.selectedCryptoCoin = ko.observable();
 			self.selectedFiatCoin = ko.observable();
 
+			// determines if zero balances are shown in balances list view
+			self.showZeroBalances = ko.observable();
+
 			// the structure that describes online coins and the user balance for those coins
 			self.coinsResponse = {};
 			self.coinsDirty = ko.observable( true );
@@ -283,7 +286,7 @@
 			self.updateQrCode = function() {
 				setTimeout( function() {
 					if ( 'undefined' !== typeof( self.coins ) ) {
-						var $deposits = $( '.dashed-slug-wallets.deposit' );
+						var $deposits = $( '.dashed-slug-wallets.deposit:not(.static)' );
 						$('.qrcode', $deposits ).empty();
 
 						var coins = self.cryptoCoins();
@@ -360,6 +363,28 @@
 							return val > 0;
 						},
 						message: wallets_ko_i18n.amount_positive
+					},
+					{
+						validator: function( val ) {
+							if ( '' === val ) {
+								return true;
+							}
+							var coins = self.coins();
+							var coin = self.selectedCoin();
+							if ( coin ) {
+								if ( 'undefined' !== typeof( coins[ coin ] ) ) {
+									var fee = parseFloat( coins[ coin ].move_fee );
+									fee += parseFloat( coins[ coin ].move_fee_proportional ) * parseFloat( self.moveAmount() );
+									if ( isNaN( fee ) ) {
+										fee = 0;
+									}
+
+									return parseFloat( val ) - fee > 0;
+								}
+							}
+							return true;
+						},
+						message: wallets_ko_i18n.amount_less_than_fee
 					},
 					{
 						validator: function( val ) {
@@ -530,6 +555,16 @@
 				});
 			};
 
+			self.getCoinIconUrl = function( coin ) {
+				if ( 'string' === typeof( coin ) ) {
+					var coins = self.coins();
+					if ( 'string' === typeof( coins[ coin ].icon_url ) ) {
+						return coins[ coin ].icon_url;
+					}
+				}
+				return '';
+			};
+
 			self.resetMove = function() {
 				self.moveAmount( '' );
 				self.moveComment( '' );
@@ -592,12 +627,12 @@
 										fee = 0;
 									}
 
-									return coins[ coin ].available_balance >= parseFloat( val ) && parseFloat( val ) >= fee;
+									return parseFloat( val ) - fee > 0;
 								}
 							}
 							return true;
 						},
-						message: wallets_ko_i18n.insufficient_balance
+						message: wallets_ko_i18n.amount_less_than_fee
 					},
 					{
 						validator: function( val ) {
@@ -614,6 +649,28 @@
 							return true;
 						},
 						message: wallets_ko_i18n.minimum_withdraw
+					},
+					{
+						validator: function( val ) {
+							if ( '' === val ) {
+								return true;
+							}
+							var coins = self.coins();
+							var coin = self.selectedCryptoCoin();
+							if ( coin ) {
+								if ( 'undefined' !== typeof( coins[ coin ] ) ) {
+									var fee = parseFloat( coins[ coin ].withdraw_fee );
+									fee += parseFloat( coins[ coin ].withdraw_fee_proportional ) * parseFloat( self.withdrawAmount() );
+									if ( isNaN( fee ) ) {
+										fee = 0;
+									}
+
+									return coins[ coin ].available_balance >= parseFloat( val ) && parseFloat( val ) >= fee;
+								}
+							}
+							return true;
+						},
+						message: wallets_ko_i18n.insufficient_balance
 					}
 				]
 			});
@@ -759,6 +816,37 @@
 				self.withdrawExtra( '' );
 			};
 
+			self.doResetApikey = function() {
+				if ( confirm( wallets_ko_i18n.apikey_renew_confirm ) ) {
+					self.ajaxSemaphore( self.ajaxSemaphore() + 1 );
+
+					$.ajax(
+						{
+							url: 'object' === typeof( walletsUserData ) ? walletsUserData.home_url : null,
+							dataType: 'json',
+							cache: false,
+							timeout: timeout_millis,
+							data: {
+								'__wallets_apiversion' : walletsUserData.recommendApiVersion || 3,
+								'__wallets_action': 'do_reset_apikey'
+							},
+							success: function( response ) {
+								if ( response.result != 'success' ) {
+									return;
+								}
+
+								self.noncesDirty( false );
+								ko.tasks.runEarly();
+								self.noncesDirty( true );
+							},
+							complete: function( jqXHR, status ) {
+								self.ajaxSemaphore( self.ajaxSemaphore() - 1 );
+							},
+							error: xhrErrorHandler
+						}
+					);
+				}
+			};
 
 			// current page number in the [wallets_transactions] view
 			self.currentPage = ko.observable( 1 ).extend({ rateLimit: 500 });
@@ -900,7 +988,7 @@
 		wp.wallets.viewModels.wallets = walletsViewModel;
 
 		// bind the viewmodel
-		$( '.dashed-slug-wallets' ).filter( '.deposit,.withdraw,.move,.balance,.transactions,.account-value,.rates' ).each( function( i, el ) {
+		$( '.dashed-slug-wallets' ).filter( '.deposit,.withdraw,.move,.balance,.transactions,.account-value,.rates,.api-key' ).each( function( i, el ) {
 			ko.applyBindings( walletsViewModel, el );
 		} );
 
@@ -931,7 +1019,34 @@
 			}
 		} );
 
+		$( 'html' ).on( 'wallets_coins_ready', function( event, coins ) {
+			if ( 'string' === typeof( walletsUserData.defaultCoin ) ) {
+				var symbol = walletsUserData.defaultCoin;
+				if ( coins && symbol && 'object' === typeof( coins[ symbol ] ) ) {
+					walletsViewModel.selectedCoin( symbol );
+				}
+			}
+		} );
+
 		$( 'html' ).on( 'wallets_ready', function( event, coins, nonces ) {
+			var $staticDeposits = $( '.dashed-slug-wallets.deposit.static' );
+
+			// render qr code into all deposit UIs
+			$staticDeposits.each( function( n, el ) {
+				var $deposit = $( el );
+				var $qrcode = $( '.qrcode', $deposit );
+				if ( $qrcode.length ) {
+					var width = $qrcode.width();
+					var qrcode_uri = $qrcode.attr('data-qrcode-uri');
+					if ( qrcode_uri ) {
+						$qrcode.qrcode( {
+							width: width,
+							height: width,
+							text: qrcode_uri
+						} );
+					}
+				}
+			} );
 
 		} );
 
